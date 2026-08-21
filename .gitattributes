@@ -1,0 +1,9 @@
+# Force LF for everything that runs on the Linux server.
+# A .sh file committed with CRLF fails there with:
+#   /usr/bin/env: 'bash\r': No such file or directory
+* text=auto eol=lf
+*.sh   text eol=lf
+*.py   text eol=lf
+*.md   text eol=lf
+*.jsonl text eol=lf
+*.docx binary

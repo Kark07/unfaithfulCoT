@@ -1,0 +1,49 @@
+# --- secrets: never commit credentials ---
+*.pem
+*.key
+.env
+.env.*
+token.txt
+*token*
+.git-credentials
+
+# --- python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.ipynb_checkpoints/
+
+# --- environments (must be built per-machine; never share a venv) ---
+.venv/
+venv/
+env/
+
+# --- caches redirected here by env.sh on the shared server ---
+.cache/
+hf_cache/
+
+# --- run outputs: regenerate, don't version ---
+results/*.jsonl
+results/*.png
+results/*.pdf
+logs/*.txt
+logs/*.log
+circuits/
+
+# keep the directories themselves
+!results/.gitkeep
+!logs/.gitkeep
+
+# --- large model artefacts ---
+*.safetensors
+*.bin
+*.pt
+*.ckpt
+
+# --- os ---
+.DS_Store
+Thumbs.db
+
+# NOTE: data/processed/*.jsonl IS committed on purpose (~1 MB). It pins the exact
+# question set the paper reports, and lets the shared server run without needing
+# HuggingFace dataset access.
