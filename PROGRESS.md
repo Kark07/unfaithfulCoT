@@ -14,7 +14,7 @@ something is built, found, or decided.
 
 | Day | Date | Planned | Status |
 |---|---|---|---|
-| 1 | Aug 22 | Datasets, prompt contract, remote env, **E0 pilot + model gate** | 🟡 code done & verified locally; **E0 not yet run — needs the server** |
+| 1 | Aug 22 | Datasets, prompt contract, remote env, **E0 pilot + model gate** | 🟡 env up on server; **E0 run 1 invalid (truncation)**; run 2 pending at 800 tok |
 | 2 | Aug 23 | E1 full generation, E2 pipeline validation | ⬜ |
 | 3 | Aug 24 | E1 judging + κ, E3 influence circuits, E4 suppression circuits | ⬜ |
 | 4 | Aug 25 | E5 baselines, E6 overlap analysis | ⬜ |
