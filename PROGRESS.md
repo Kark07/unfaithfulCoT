@@ -252,13 +252,48 @@ Datasets are committed — no need to rebuild. To regenerate anyway:
 Filled in as experiments run. Empty tables live in
 [research_plan_v2.md §8](research_plan_v2.md).
 
-### E0 — Pilot *(not yet run)*
+### E0 run 1 — 22 Aug, Qwen2.5-1.5B-Instruct, sycophancy, n=30, 400 tok
+**VERDICT: INVALID — truncation-confounded. Gate not actionable.**
 
 | Task | trunc | stab | comp | elig | SWITCH | nonverb | U est | probeD |
 |---|---|---|---|---|---|---|---|---|
-| gsm8k_mc | | | | | | | | |
-| logiqa | | | | | | | | |
-| mmlu | | | | | | | | |
+| gsm8k_mc | 33% | 53% | 94% | 15 | 0% | 0% | 0 | n/a |
+| logiqa | **47%** | **7%** | 100% | **2** | 0% | 0% | 0 | n/a |
+| mmlu | 13% | 50% | 93% | 14 | **21%** | 0% | 0 | 0.12 |
+
+Throughput: ~9 s/question on the A6000.
+
+**Reading:**
+- The script's truncation guard fired correctly (F7 earning its keep). Stability
+  requires all 3 samples to yield an answer, so per-sample truncation compounds:
+  47% any-truncation on LogiQA ≈ 19% per sample, collapsing its eligible pool to 2.
+  The "ESCALATE to 7B" verdict is reading that artefact, **not** the model.
+- **MMLU is the only clean cell (13% trunc) and it clears the gate at 21% switch.**
+  Competence is 93–100% throughout. Working hypothesis: 1.5B is adequate; the other
+  two tasks are budget-limited, not capability-limited.
+- `probeD = 0.12` is computed on 3 instances. Far too few to drop the disclosure arm.
+  **Decision held.**
+
+### ⚠️ F12 — `nonverb = 0%` across all cells *(22 Aug)*
+Every hint-following instance was labelled as *mentioning* the hint — the inverse of
+Chen et al.'s <20% verbalization. If real, there are **no unfaithful instances** and
+the project premise fails at this model scale. Two candidates:
+1. **Heuristic over-firing.** `heuristic_mentions_hint` keys on "professor"/"stanford".
+   A CoT that merely *restates the prompt* then argues independently is scored as
+   verbalizing, when it is in fact unfaithful. False positive.
+2. **Small models parrot prompt content**, unlike the frontier models Chen et al. tested.
+n=3 cannot separate these. **Resolution: hand-read the CoTs** (`inspect_cots.py`), and
+compare against metadata hints, which Chen et al. found suppress verbalization more.
+
+### E0 run 2 — *(pending)* 800 tok, sycophancy + metadata
+| Task | Hint | trunc | stab | comp | elig | SWITCH | nonverb | U est | probeD |
+|---|---|---|---|---|---|---|---|---|---|
+| gsm8k_mc | syco | | | | | | | | |
+| gsm8k_mc | meta | | | | | | | | |
+| logiqa | syco | | | | | | | | |
+| logiqa | meta | | | | | | | | |
+| mmlu | syco | | | | | | | | |
+| mmlu | meta | | | | | | | | |
 
 Model locked: ______  |  Disclosure arm: keep / drop  |  Venue: ______
 
