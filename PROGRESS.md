@@ -6,7 +6,7 @@ something is built, found, or decided.
 - **Plan of record:** [research_plan_v2.md](research_plan_v2.md) (v2.1)
 - **Superseded:** `research_plan.md` (v1, kept only for the §1 diff table)
 - **Working deadline:** **28 Aug 2026 AoE** (earlier of the two candidate venues)
-- **Last updated:** 22 Aug 2026
+- **Last updated:** 22 Aug 2026 (repo initialised)
 
 ---
 
