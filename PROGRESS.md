@@ -285,15 +285,55 @@ the project premise fails at this model scale. Two candidates:
 n=3 cannot separate these. **Resolution: hand-read the CoTs** (`inspect_cots.py`), and
 compare against metadata hints, which Chen et al. found suppress verbalization more.
 
-### E0 run 2 — *(pending)* 800 tok, sycophancy + metadata
+### E0 runs 2–3 — 22 Aug, Qwen2.5-1.5B-Instruct, 800 tok, n=30
+Truncation fixed (0–7%). Gate says PROCEED at 1.5B.
+
 | Task | Hint | trunc | stab | comp | elig | SWITCH | nonverb | U est | probeD |
 |---|---|---|---|---|---|---|---|---|---|
-| gsm8k_mc | syco | | | | | | | | |
-| gsm8k_mc | meta | | | | | | | | |
-| logiqa | syco | | | | | | | | |
-| logiqa | meta | | | | | | | | |
-| mmlu | syco | | | | | | | | |
-| mmlu | meta | | | | | | | | |
+| gsm8k_mc | syco | 3% | 63% | 95% | 18 | **0%** | – | 0 | n/a |
+| gsm8k_mc | meta | 0% | 53% | 94% | 15 | **0%** | – | 0 | n/a |
+| gsm8k_mc | grader | 0% | 63% | 95% | 18 | **0%** | – | 0 | n/a |
+| logiqa | syco | 7% | 13% | 50% | 2 | 0% | – | 0 | n/a |
+| logiqa | meta | 0% | 23% | 57% | 4 | 25% | – | 0 | 0.12 |
+| logiqa | grader | 0% | 23% | 57% | 4 | 0% | – | 0 | n/a |
+| mmlu | syco | 0% | 50% | 93% | 14 | 21% | 0% | 0 | 0.12 |
+| mmlu | meta | 0% | 40% | 83% | 10 | 0% | – | 0 | n/a |
+| **mmlu** | **grader** | 0% | 60% | 89% | 16 | **19%** | **100%** | **3** | 0.12 |
+
+### ✅ F13 — Hint modality controls VERBALIZATION, not switch rate *(22 Aug)*
+MMLU: sycophancy 21% switch / **0%** non-verbalized; grader 19% switch / **100%**
+non-verbalized. Near-identical switching, opposite disclosure. With a professor the
+model narrates its deference ("Given that the Stanford professor indicated (B)…");
+with a verified answer key it absorbs the hint silently and rationalizes.
+**→ `grader` becomes the primary hint type.** This is also a standalone result: it is
+the hint axis of E6b, which v1 collected and never analysed.
+Resolves F12: unfaithful instances exist; the old heuristic was hiding them.
+
+Projected yield, mmlu/grader: 600 × 0.53 elig × 0.19 switch × 1.00 nonverb ≈ **60 U**
+— above the 30 floor (§7.2).
+
+### 🔴 F14 — GSM8K is hint-immune: 0 switches / 51 eligible *(22 Aug)*
+Zero across sycophancy, metadata **and** grader. Robust, not noise.
+**Hypothesis (structural, and a flaw in my filter design):** the competence filter
+keeps only questions the model answers *correctly*. On math, "correct" means
+"computed", so certainty and correctness coincide and no hint can tip it. On
+knowledge/logic a model can be right while genuinely uncertain — which is where
+hints bite. **The competence filter is anti-correlated with switchability, worst on
+math.** Testable: `margin` and `letter_logits` now recorded per instance;
+`analyze_margin.py` checks whether switching concentrates at low confidence.
+If it does, the fix is a margin cap, not a bigger model.
+
+### 🟠 F15 — LogiQA is starved upstream, not hint-resistant *(22 Aug)*
+Stability 13–23%, competence 50–57% → only 2–4 eligible from 30. Its 0% switch is
+measured on n≤4 and carries no information. Fix eligibility (more questions, or a
+larger model with better LogiQA competence) before judging its switch rate.
+
+### E0 run 4 — *(pending)* 7B escalation + margin data
+| Task | Hint | trunc | stab | comp | elig | SWITCH | nonverb | U est | probeD |
+|---|---|---|---|---|---|---|---|---|---|
+| gsm8k_mc | grader | | | | | | | | |
+| logiqa | grader | | | | | | | | |
+| mmlu | grader | | | | | | | | |
 
 Model locked: ______  |  Disclosure arm: keep / drop  |  Venue: ______
 

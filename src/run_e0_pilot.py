@@ -103,6 +103,18 @@ def run_task(model, tok, device, task, questions, hint_type, neutral, args, rng)
         X, Y = select_xy(q, option_logits=[lg[L] for L in LETTERS])
         rec["x_letter"], rec["y_letter"] = X, Y
 
+        # Confidence margin: gold logit minus the best distractor's.
+        # Hypothesis worth testing -- the competence filter keeps only questions
+        # the model gets right, and on math "right" means "computed", so those
+        # are exactly the questions a hint cannot move. If switching concentrates
+        # at low margin, the fix is to select correct-but-uncertain instances
+        # rather than to change model or hint. Recorded, not filtered on, so the
+        # threshold can be chosen from data instead of guessed.
+        rec["letter_logits"] = {L: lg[L] for L in LETTERS}
+        _wrong = [lg[L] for L in q.incorrect_letters()]
+        rec["margin"] = float(lg[q.gold_letter] - max(_wrong))
+        rec["margin_over_X"] = float(lg[q.gold_letter] - lg[X])
+
         # --- filter 4: alignment, raw and after chat templating ---
         trip, chk = build_and_check(tok, q, hint_type, X, Y, neutral)
         ok_chat, _ = assert_chat_aligned(tok, trip)
