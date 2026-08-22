@@ -216,7 +216,8 @@ shared-server hygiene (project-local caches, no global installs, VRAM check).
 | 🟠 | Venue decision (plan §0) | paper framing |
 | 🟡 | Verify 4 flagged 2026 arXiv IDs in plan §12 | submission |
 | 🟡 | Get `transformer_lens` working + IOI sanity check (E2) | E3 onward |
-| 🟡 | LLM judge for verbalization + 50 hand labels (κ ≥ 0.8) | E4 |
+| 🟠 | Run `judge.py` + 50 hand labels, confirm κ ≥ 0.8 | E4 |
+| 🔴 | Validate `extract_answer` accuracy on GSM8K (F17) — F14 unconfirmed until then | task-set decision |
 
 ---
 
@@ -355,6 +356,33 @@ fail differently from prose.
 **→ Fix:** `unhinted_gen` and `hinted_gen` now stored verbatim;
 `src/validate_extraction.py` prints them beside the extracted letter for hand scoring.
 **Extraction accuracy on GSM8K has NOT yet been measured — do this before trusting F14.**
+
+### 📚 F18 — How the field actually measures this *(22 Aug, checked)*
+Fetched Chen et al. 2025 (arXiv 2505.05410) methodology directly:
+
+| Question | Their method |
+|---|---|
+| Did the hint flip the answer? | **Automated, deterministic.** "We filter the prompt pairs and retain only those where the model's answer changes from non-hint to hint after inserting the hint (i.e. a_u != h and a_h = h)". **No judge, no humans.** Identical to ours. |
+| Does the CoT verbalize the hint? | **LLM judge** — Claude 3.5 Sonnet (New) — "validate the checker's quality through manual inspection on a subset". |
+
+Two things follow:
+1. **Our switch test matches the field standard.** An LLM judge there would be
+   strictly worse: it injects error into a counterfactual we measure exactly. The
+   only defensible model role on that side is a *backstop extractor* when the regex
+   fails (see F17).
+2. **They report NO quantitative agreement** — no kappa, no precision/recall against
+   gold labels. Computing and reporting Cohen's kappa is a small but real
+   improvement, and lands directly on the Interpretability-as-a-Science topic
+   "measurement validity, identifiability, and evaluation design" (plan §0).
+
+Their criterion is **two-part** — the CoT must (a) mention the hint and (b) depend on
+it to reach the answer. Adopted in `src/judge.py`: a CoT that names the hint then
+reasons independently is a different animal from one that defers to it.
+
+**→ `src/judge.py`** — Claude Opus 5, structured output, two-part rubric, Batches API
+mode (50% cost for the ~600-instance E1 run), and a `--validate` mode computing
+Cohen's kappa against hand labels with a confusion matrix. Gate: **kappa >= 0.80**
+before E4, since the F/U split is what the suppression circuit is built from.
 
 ### E0 run 4 — *(pending)* 7B escalation + margin data
 | Task | Hint | trunc | stab | comp | elig | SWITCH | nonverb | U est | probeD |
