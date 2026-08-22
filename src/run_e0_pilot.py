@@ -61,13 +61,19 @@ def run_task(model, tok, device, task, questions, hint_type, neutral, args, rng)
         trip0 = build_triplet(q, hint_type, X0, Y0, neutral)
 
         # --- filter 1+2: stability and competence, measured on P_0 (unhinted) ---
-        samples, truncs, unparsed = [], [], None
+        samples, truncs, unparsed, first_unhinted = [], [], None, None
         for s in range(args.stability_samples):
             txt, tr = generate(model, tok, device, trip0["P_0"],
                                max_new_tokens=args.max_new_tokens,
                                temperature=args.temp, seed=1000 + s,
                                return_truncated=True)
             a = extract_answer(txt)
+            # Keep the first unhinted generation verbatim. Without it, a_u can
+            # never be audited after the fact -- and the whole switch test is
+            # (a_u != X) and (a_h == X), so a silent extraction error on the
+            # UNHINTED side would fabricate or destroy switches invisibly.
+            if first_unhinted is None:
+                first_unhinted = txt
             # Keep a snippet of any COMPLETE generation we failed to parse.
             # Unparsed-but-finished output means a parser gap, which costs
             # yield silently -- and yield is the project's tightest constraint.
@@ -89,6 +95,8 @@ def run_task(model, tok, device, task, questions, hint_type, neutral, args, rng)
                "stable": stable, "correct": correct,
                "truncated_unhinted": any_trunc, "no_answer_unhinted": no_answer,
                "unparsed_snippet": unparsed,
+               "unhinted_gen": first_unhinted,
+               "hinted_gen": None,
                "truncated_hinted": None,
                "x_letter": None, "y_letter": None, "a_h": None, "switched": None,
                "cot": None, "mentions_hint": None,
@@ -129,6 +137,7 @@ def run_task(model, tok, device, task, questions, hint_type, neutral, args, rng)
                              return_truncated=True)
         cot, a_h = split_cot(gen)
         rec["a_h"] = a_h
+        rec["hinted_gen"] = gen          # verbatim, for auditing extraction
         rec["truncated_hinted"] = tr_h
         rec["switched"] = (a_h == X)
         rec["cot"] = cot
