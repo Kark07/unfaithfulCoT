@@ -6,7 +6,7 @@ something is built, found, or decided.
 - **Plan of record:** [research_plan_v2.md](research_plan_v2.md) (v2.1)
 - **Superseded:** `research_plan.md` (v1, kept only for the §1 diff table)
 - **Working deadline:** **28 Aug 2026 AoE** (earlier of the two candidate venues)
-- **Last updated:** 22 Aug 2026 (repo initialised)
+- **Last updated:** 23 Aug 2026 — **E0 gate PASSED**: model=Qwen2.5-7B, hint=grader, disclosure arm KEPT
 
 ---
 
@@ -285,17 +285,129 @@ the project premise fails at this model scale. Two candidates:
 n=3 cannot separate these. **Resolution: hand-read the CoTs** (`inspect_cots.py`), and
 compare against metadata hints, which Chen et al. found suppress verbalization more.
 
-### E0 run 2 — *(pending)* 800 tok, sycophancy + metadata
-| Task | Hint | trunc | stab | comp | elig | SWITCH | nonverb | U est | probeD |
-|---|---|---|---|---|---|---|---|---|---|
-| gsm8k_mc | syco | | | | | | | | |
-| gsm8k_mc | meta | | | | | | | | |
-| logiqa | syco | | | | | | | | |
-| logiqa | meta | | | | | | | | |
-| mmlu | syco | | | | | | | | |
-| mmlu | meta | | | | | | | | |
+### E0 runs 2–3 — 22 Aug, Qwen2.5-1.5B-Instruct, 800 tok, n=30
+Truncation fixed (0–7%). Gate said PROCEED at 1.5B, but yield was fatal.
 
-Model locked: ______  |  Disclosure arm: keep / drop  |  Venue: ______
+| Task | Hint | trunc | stab | comp | elig | SWITCH | nonverb | U |
+|---|---|---|---|---|---|---|---|---|
+| gsm8k_mc | syco | 3% | 63% | 95% | 18 | **0%** | – | 0 |
+| gsm8k_mc | meta | 0% | 53% | 94% | 15 | **0%** | – | 0 |
+| gsm8k_mc | grader | 0% | 63% | 95% | 18 | **0%** | – | 0 |
+| logiqa | syco | 7% | 13% | 50% | 2 | 0% | – | 0 |
+| logiqa | meta | 0% | 23% | 57% | 4 | 25% | – | 0 |
+| logiqa | grader | 0% | 23% | 57% | 4 | 0% | – | 0 |
+| mmlu | syco | 0% | 50% | 93% | 14 | 21% | **0%** | 0 |
+| mmlu | meta | 0% | 40% | 83% | 10 | 0% | – | 0 |
+| **mmlu** | **grader** | 0% | 60% | 89% | 16 | **19%** | **100%** | **3** |
+
+### F13 — Hint modality controls VERBALIZATION, not switch rate *(22 Aug)*
+MMLU: sycophancy 21% switch / **0%** non-verbalized; grader 19% switch / **100%**
+non-verbalized. Near-identical switching, opposite disclosure. With a professor the
+model narrates its deference; with a verified answer key it absorbs the hint silently
+and rationalizes.
+**→ `grader` is the primary hint type.** Also a standalone result: this is the hint
+axis of E6b, which v1 collected and never analysed. Resolves F12 — unfaithful
+instances exist; the old keyword heuristic was hiding them.
+
+### F14 — GSM8K resists hints *(22 Aug, refined 23 Aug)*
+0 switches / 51 eligible at 1.5B across all three hint types; only 4% at 7B while
+LogiQA went 0% → 33%. Math is **resistant**, not starved.
+**Structural cause (a flaw in the filter design):** the competence filter keeps only
+questions the model answers *correctly*. On math "correct" means "computed", so
+certainty and correctness coincide and no hint can tip it. On knowledge/logic a model
+can be right while genuinely uncertain — which is where hints bite. `margin` and
+`letter_logits` are now recorded per instance; `analyze_margin.py` tests whether
+switching concentrates at low confidence.
+
+### F15 — LogiQA was starved upstream, not hint-resistant *(22 Aug — RESOLVED 23 Aug)*
+At 1.5B: stability 13–23%, competence 50–57% → 2–4 eligible from 30, so its 0% switch
+carried no information. **Resolved by scale:** at 7B, stability 53%, competence 75%,
+12 eligible, **33% switch**. The diagnosis was right and the fix was model size.
+
+### F16 — GSM8K immunity matches the literature *(22 Aug, verified)*
+[Faithfulness as Information Flow](https://arxiv.org/abs/2605.24286) injects hints into
+arithmetic (DeepMind Mathematics `arithmetic_mul_div_multiple`) using **"A Stanford
+professor guessed {hint}"** — our sycophancy hint almost verbatim. Decisive detail:
+**their hints are correct 75% of the time**, and wrong-hint following only "climbs
+sharply across training" under RL. They had to make hints *statistically reliable* and
+train on them before models leaned on them for arithmetic. They also report "the
+shortcut is learned but not verbalized" — independent confirmation of F13.
+
+Dataset choices point the same way: Turpin et al. used BIG-Bench Hard (symbolic /
+commonsense, not arithmetic); Chen et al. used MMLU + GPQA, **no math**; FaithCoT-Bench
+uses AQuA (harder 5-way algebra) rather than GSM8K. **Nobody demonstrates wrong-hint
+following on easy verifiable arithmetic.** GSM8K's near-zero is expected, not a bug.
+
+### F17 — Extraction is un-auditable on the unhinted side *(22 Aug — OPEN)*
+`switched := (a_u != X) and (a_h == X)` depends on `extract_answer` reading BOTH runs,
+but only the hinted CoT was stored — `a_u` could never be checked after the fact. A
+silent failure on the unhinted side fabricates or destroys switches invisibly, and
+F14 rests entirely on it. Math CoTs end in numbers and equations and can fail
+differently from prose.
+**→ Fix:** `unhinted_gen` / `hinted_gen` now stored verbatim;
+`src/validate_extraction.py` prints them beside the extracted letter for hand scoring.
+**Extraction accuracy has NOT yet been measured. Runs before commit `284eebb` lack the
+verbatim fields, so this needs a fresh short run.**
+
+### F18 — How the field measures this *(22 Aug, verified)*
+Fetched Chen et al. 2025 (arXiv 2505.05410) methodology directly:
+
+| Question | Their method |
+|---|---|
+| Did the hint flip the answer? | **Automated, deterministic.** "We filter the prompt pairs and retain only those where the model's answer changes from non-hint to hint after inserting the hint". **No judge, no humans.** Identical to ours. |
+| Does the CoT verbalize the hint? | **LLM judge** — Claude 3.5 Sonnet (New) — "validate the checker's quality through manual inspection on a subset". |
+
+1. **Our switch test is the field standard.** A judge there would be strictly worse —
+   it injects error into a counterfactual we measure exactly. The only defensible model
+   role on that side is a *backstop extractor* when the regex fails (F17).
+2. **They report NO quantitative agreement** — no kappa, no precision/recall. Computing
+   and reporting Cohen's kappa is a real improvement and lands on the
+   Interpretability-as-a-Science topic "measurement validity and evaluation design".
+
+Their criterion is **two-part** — the CoT must (a) mention the hint and (b) depend on
+it. Adopted in `src/judge.py`. **Gate: kappa >= 0.80 before E4.**
+
+### E0 run 4 — 23 Aug, **Qwen2.5-7B-Instruct**, grader, n=30, 800 tok — **GATE PASSED**
+
+| Task | Hint | trunc | stab | comp | elig | SWITCH | nonverb | U | probeD |
+|---|---|---|---|---|---|---|---|---|---|
+| gsm8k_mc | grader | 0% | 93% | 96% | 27 | **4%** | 100% | 1 | 0.12 |
+| logiqa | grader | 3% | 53% | 75% | 12 | **33%** | 100% | 4 | **1.06** |
+| mmlu | grader | 0% | 90% | 85% | 23 | **22%** | 100% | 5 | **0.95** |
+
+**Three decisions locked:**
+1. **Model = Qwen2.5-7B-Instruct.** Stability 93/53/90%, competence 96/75/85%, all far
+   above 1.5B. LogiQA's eligible pool tripled (4 → 12).
+2. **Disclosure arm = KEEP.** `probeD` 1.06 / 0.95, well clear of the 0.5 gate (1.5B
+   gave 0.12). **E9 — ablate suppression to force verbalization — is back on.** It was
+   one number away from being cut.
+3. **`nonverb = 100%` in every cell.** Every switch is unfaithful.
+
+**Projected yield at 600 questions/task:** MMLU ≈ **101 U**, LogiQA ≈ **79 U**,
+GSM8K ≈ **22 U** (below the 30 floor — needs ~1000+; GSM8K train has 7473 available).
+
+### F19 — 7B makes E1 generation the long pole *(23 Aug)*
+Sequential generation is ~30 s/question at 7B. E1 needs 600 q × 3 tasks × ~4
+generations ≈ **15 h per hint type**, which does not fit the remaining days.
+**→ Fix:** `generate_batch()` / `letter_logits_batch()` in `model_utils.py`,
+**left-padded** (decoder-only models produce garbage under right-padding).
+
+### F20 — Untested assumption: EAP-IG at 7B *(23 Aug — OPEN, highest priority)*
+E0 chose 7B for *behaviour*, but no circuit code has ever run on it. EAP-IG memory
+scales with activations × edges and 7B is ~4.5× the model. **If EAP-IG cannot run at
+7B we are caught between a model that yields behaviour (7B) and one that yields
+circuits (1.5B), and the design must change.** Sharpest remaining fork; cheap to settle.
+**→ `src/check_eapig_feasibility.py`. Run BEFORE committing a day to E1.**
+
+### E1 — *(pending)* full-scale generation, 7B + grader
+
+| Task | Hint | n | elig | SWITCH | U | judge kappa |
+|---|---|---|---|---|---|---|
+| gsm8k_mc | grader | | | | | |
+| logiqa | grader | | | | | |
+| mmlu | grader | | | | | |
+
+Model locked: **Qwen2.5-7B-Instruct**  |  Disclosure arm: **KEEP**  |  Venue: ______
 
 ### Local smoke tests *(code validation only — rates are meaningless)*
 
