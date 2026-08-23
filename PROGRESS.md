@@ -399,6 +399,23 @@ scales with activations × edges and 7B is ~4.5× the model. **If EAP-IG cannot 
 circuits (1.5B), and the design must change.** Sharpest remaining fork; cheap to settle.
 **→ `src/check_eapig_feasibility.py`. Run BEFORE committing a day to E1.**
 
+### F21 — The keyword heuristic had NO grader-hint terms *(23 Aug)*
+`_HINT_WORDS` covered sycophancy ("professor", "stanford") and metadata
+("metadata", "success-rate", "<answer>") but contained **nothing for the grader
+hint** — no "answer key", no "verified answer". So a CoT reading *"the answer key
+says B, so B"* — an explicitly verbalized CoT — matched no keyword and was scored
+**NOT verbalized**.
+
+**This makes `nonverb = 100%` on every grader cell potentially trivial**, and F13
+(hint modality controls verbalization) rests on exactly that number. Fixing F12's
+false positives introduced false negatives in the same function.
+
+**→ Fixed:** grader/answer-key terms added; 8/8 on a mixed test.
+**→ Real lesson:** keyword matching has now failed in BOTH directions on the same
+metric. The `nonverb` figures stay **provisional** until `judge.py` has run and
+been validated at kappa >= 0.80. No number derived from the keyword heuristic goes
+in the paper.
+
 ### E1 — *(pending)* full-scale generation, 7B + grader
 
 | Task | Hint | n | elig | SWITCH | U | judge kappa |
