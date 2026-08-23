@@ -107,6 +107,74 @@ def disclosure_logits(model, tok, device, prompt: str, cot: str, answer_letter: 
 # ---------------------------------------------------------------------------
 
 @torch.no_grad()
+def generate_batch(model, tok, device, prompts: list[str], max_new_tokens: int = 800,
+                   temperature: float = 0.0, seed: int | None = None,
+                   batch_size: int = 16) -> list[tuple[str, bool]]:
+    """Batched generation. Returns [(text, truncated), ...] aligned to `prompts`.
+
+    Sequential generation is ~30 s/question at 7B, which is ~15 h for one E1 pass.
+    Batching is what makes the full experiment fit in the remaining days.
+
+    Decoder-only models must be LEFT-padded for batched generation: right-padding
+    puts pad tokens between the prompt and the first generated token, so the model
+    attends to padding and the output is garbage. We set padding_side per call and
+    restore it, rather than mutating the tokenizer globally -- the scoring passes
+    depend on the default.
+    """
+    if tok.pad_token_id is None:
+        tok.pad_token = tok.eos_token
+    prev_side = tok.padding_side
+    tok.padding_side = "left"
+    try:
+        out: list[tuple[str, bool]] = []
+        for i in range(0, len(prompts), batch_size):
+            chunk = [chat_wrap(tok, p) for p in prompts[i:i + batch_size]]
+            enc = tok(chunk, return_tensors="pt", padding=True,
+                      add_special_tokens=False).to(device)
+            n_in = enc.input_ids.shape[1]
+            kw = dict(max_new_tokens=max_new_tokens, pad_token_id=tok.pad_token_id)
+            if temperature and temperature > 0:
+                if seed is not None:
+                    torch.manual_seed(seed)
+                kw.update(do_sample=True, temperature=temperature, top_p=0.95, top_k=0)
+            else:
+                kw.update(do_sample=False, temperature=None, top_p=None, top_k=None)
+            gen = model.generate(**enc, **kw)
+            for row in gen:
+                new = row[n_in:]
+                txt = tok.decode(new, skip_special_tokens=True)
+                # truncated iff no EOS appeared in the generated span
+                truncated = bool((new == tok.eos_token_id).sum().item() == 0)
+                out.append((txt, truncated))
+        return out
+    finally:
+        tok.padding_side = prev_side
+
+
+@torch.no_grad()
+def letter_logits_batch(model, tok, device, prompts: list[str],
+                        batch_size: int = 16) -> list[dict[str, float]]:
+    """Batched Pass alpha. Left-padded so the final position is the real last token."""
+    if tok.pad_token_id is None:
+        tok.pad_token = tok.eos_token
+    prev_side = tok.padding_side
+    tok.padding_side = "left"
+    try:
+        ids = {L: tok(L, add_special_tokens=False).input_ids[0] for L in LETTERS}
+        out = []
+        for i in range(0, len(prompts), batch_size):
+            chunk = [chat_wrap(tok, p) + ANSWER_CUE for p in prompts[i:i + batch_size]]
+            enc = tok(chunk, return_tensors="pt", padding=True,
+                      add_special_tokens=False).to(device)
+            lg = model(**enc).logits[:, -1, :]
+            for row in lg:
+                out.append({L: float(row[ids[L]]) for L in LETTERS})
+        return out
+    finally:
+        tok.padding_side = prev_side
+
+
+@torch.no_grad()
 def generate(model, tok, device, prompt: str, max_new_tokens: int = 400,
              temperature: float = 0.0, seed: int | None = None,
              return_truncated: bool = False):
