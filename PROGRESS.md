@@ -392,12 +392,27 @@ generations ≈ **15 h per hint type**, which does not fit the remaining days.
 **→ Fix:** `generate_batch()` / `letter_logits_batch()` in `model_utils.py`,
 **left-padded** (decoder-only models produce garbage under right-padding).
 
-### F20 — Untested assumption: EAP-IG at 7B *(23 Aug — OPEN, highest priority)*
+### F20 — EAP-IG at 7B: **RESOLVED, feasible** *(26 Aug)*
 E0 chose 7B for *behaviour*, but no circuit code has ever run on it. EAP-IG memory
 scales with activations × edges and 7B is ~4.5× the model. **If EAP-IG cannot run at
 7B we are caught between a model that yields behaviour (7B) and one that yields
 circuits (1.5B), and the design must change.** Sharpest remaining fork; cheap to settle.
-**→ `src/check_eapig_feasibility.py`. Run BEFORE committing a day to E1.**
+**→ `src/check_eapig_feasibility.py`. RESULT (26 Aug), RTX PRO 6000 Blackwell Max-Q,
+101.1 GB free:**
+
+| Stage | Cost |
+|---|---|
+| TransformerLens load | 15.3 GB, OK |
+| forward + backward with grads | 33.2 GB peak, gradients flow |
+| full activation cache | 1.6 GB per cache; EAP-IG est. ~4.9 GB |
+| after teardown | **67.3 GB free** |
+
+Graph: 28 layers × 28 heads, d_model 3584, **935,747 edges**; edge-score tensor 0.004 GB.
+
+**Consequence for scheduling:** at m=5 integration steps, EAP-IG is a handful of
+forward+backward passes per instance — **minutes** for a few hundred instances, not
+hours. **Generation is the bottleneck, not circuit extraction.** Prioritise E1
+throughput; circuits are cheap. Headroom also allows batched EAP-IG if needed.
 
 ### F21 — The keyword heuristic had NO grader-hint terms *(23 Aug)*
 `_HINT_WORDS` covered sycophancy ("professor", "stanford") and metadata
