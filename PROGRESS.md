@@ -5,25 +5,34 @@ something is built, found, or decided.
 
 - **Plan of record:** [research_plan_v2.md](research_plan_v2.md) (v2.1)
 - **Superseded:** `research_plan.md` (v1, kept only for the §1 diff table)
-- **Working deadline:** **28 Aug 2026 AoE** (earlier of the two candidate venues)
-- **Last updated:** 23 Aug 2026 — **E0 gate PASSED**: model=Qwen2.5-7B, hint=grader, disclosure arm KEPT
+- **Deadline status:** original targets (28/29 Aug 2026) **MISSED**. Both were
+  non-archival, so nothing is burned — re-targeting a later venue (see §3b).
+- **Last updated:** 31 Aug 2026 — E0+E1 complete; E2–E9 scripted, unrun
 
 ---
 
 ## 1. Status at a Glance
 
-| Day | Date | Planned | Status |
+| Phase | Date | Work | Status |
 |---|---|---|---|
-| 1-2 | Aug 22-23 | Datasets, prompt contract, E0 pilot + model gate | ✅ **DONE** — model=Qwen2.5-7B, hint=grader, disclosure arm KEPT |
-| 2 | Aug 23 | E1 full generation, E2 pipeline validation | ⬜ |
-| 3 | Aug 24 | E1 judging + κ, E3 influence circuits, E4 suppression circuits | ⬜ |
-| 4 | Aug 25 | E5 baselines, E6 overlap analysis | ⬜ |
-| 5 | Aug 26 | E7 transfer, E8+E9 ablations, **venue locked** | ⬜ |
-| 6 | Aug 27 | Figures, full draft, anonymize | ⬜ |
-| 7 | Aug 28 | Revise + **submit** | ⬜ |
+| Setup | Aug 22 | datasets, prompt contract (3600/3600 aligned) | ✅ |
+| **E0** | Aug 22–23 | pilot + model gate | ✅ model=Qwen2.5-7B, hint=grader, disclosure arm KEPT |
+| **E1** | Aug 26 | full-scale generation, 600 q × 3 tasks | ✅ 117 / 123 / 29 switched |
+| Deadline | Aug 28–29 | submit | ❌ **missed** — re-targeting (§3b) |
+| Tooling | Aug 31 | E2–E9 all scripted | ✅ written, syntax-checked, **unrun** |
+| **E2** | — | IOI sanity + `k*` | ⬜ **next, blocks everything** |
+| **E3/E5b** | — | influence circuits + task-solving floor | ⬜ |
+| Judge | — | κ ≥ 0.80 on 50 hand labels | ⬜ (parallel with E3) |
+| **E4** | — | disclosure + suppression circuits | ⬜ needs judge |
+| **E5/E6** | — | ceiling, floor, null, overlap, two-way, separability | ⬜ |
+| **E7** | — | transfer matrix | ⬜ |
+| **E8/E9** | — | ablations + double dissociation | ⬜ |
 
-**Critical path right now:** get `setup_remote.sh` running on the shared A6000, then E0.
-Nothing downstream is meaningful until E0 clears its gate.
+**Critical path right now:** `run_e2_validate.py --stage ioi`. EAP-IG is untested
+code performing the most important computation in the project; if it cannot recover
+the known IOI circuit, every downstream number is silently garbage.
+
+**Operational steps:** [RUNBOOK.md](RUNBOOK.md).
 
 ---
 
@@ -107,6 +116,19 @@ Output columns: `trunc | stab | comp | elig | SWITCH | nonverb | U est | probeD`
 - `inspect_unparsed.py <results.jsonl>` — show complete generations that
   `extract_answer` failed on. Every one is a lost instance, and yield is the
   tightest constraint (§7.2).
+
+### Circuit experiment scripts *(written 31 Aug, none run yet)*
+
+| File | Role |
+|---|---|
+| `src/eap_ig.py` | **EAP-IG core.** Residual-stream identity: every reader sees the sum of upstream writes, so per-edge attribution collapses to an outer product of writer deltas against reader-input gradients. IG interpolates at the embedding. `faithfulness()` is a sufficiency test against the corrupted baseline (mean-ablation, never zero). |
+| `src/circuit_utils.py` | Shared: instance loading, the three scoring passes, circuit save/load, aggregation, Jaccard, split-half ceiling, score-matched permutation null. |
+| `src/run_e2_validate.py` | **E2.** `--stage ioi` recovers the known IOI circuit in GPT-2 small (the correctness gate); `--stage curve` sweeps edge budget to pick `k*`. |
+| `src/run_circuits.py` | **E3/E4/E5b.** One script, three arms — `influence` (P_X vs P_Y), `disclosure` (P_X vs P_0, sign preserved → suppression), `solve` (task-solving floor). |
+| `src/run_e5_e6_analysis.py` | **E5/E6.** Ceiling, floor, null; `J_raw`/`J_norm`/`p_perm`; the two-way decomposition (main figure); influence-vs-suppression separability. |
+| `src/run_e7_transfer.py` | **E7.** Asymmetric transfer matrix — circuit from task A tested on task B. |
+| `src/run_e8_e9_ablation.py` | **E8/E9.** Ablate shared circuit, measure hint-following / verbalization / accuracy, against ablate-other-arm and size-matched-random controls. |
+| `src/judge.py` | LLM judge (Claude Opus 5), Chen et al.'s two-part criterion, Batches API, Cohen's κ validation. |
 
 ### `setup_remote.sh` + `env.sh` — shared-server environment
 
@@ -440,6 +462,105 @@ in the paper.
 | mmlu | grader | | | | | |
 
 Model locked: **Qwen2.5-7B-Instruct**  |  Disclosure arm: **KEEP**  |  Venue: ______
+
+### ✅ E1 — 26 Aug, Qwen2.5-7B-Instruct, grader, n=600/task, 800 tok, batch 24
+
+| cell | n | trunc | stab | comp | elig | SWITCH | \|U∪F\| | \|R\| | U~ | probeD |
+|---|---|---|---|---|---|---|---|---|---|---|
+| **mmlu/grader** | 600 | 0% | 82% | 85% | 421 | **28%** | **117** | 304 | 68 | 0.53 |
+| **logiqa/grader** | 600 | 3% | 65% | 74% | 291 | **42%** | **123** | 168 | 115 | 0.71 |
+| gsm8k_mc/grader | 600 | 0% | 92% | 99% | 545 | **5%** | 29 | 516 | 6 | 0.33 |
+
+Runtime ≈ 21 min/cell with batched generation (F19 fix); ~1 h total vs the ~15 h
+sequential generation would have cost.
+
+**Two cells clear the 30-instance floor with large margins** — 117 and 123
+switched instances, plus resistance sets of 304 and 168 for the E8/E9 controls.
+GSM8K yields 29 switched but only 6 U.
+
+### ✅ F21 CONFIRMED — the 100% non-verbalization was a keyword artefact
+With grader terms added to `_HINT_WORDS`, non-verbalization is **58% / 93% / 21%**,
+not 100% everywhere.
+
+**F13 must be restated.** Grader hints suppress verbalization *substantially but
+not universally*, and **the rate varies sharply by task**: MMLU 42% verbalized vs
+LogiQA 7%. That task difference is itself interesting — but it is still a keyword
+number, and keyword matching has now been wrong in both directions. **The judge
+decides it. No keyword-derived figure goes in the paper.**
+
+### 🟠 GSM8K yield — below floor, recoverable
+5% switch × 21% non-verbalized ≈ 1% of questions become U instances. ~3000
+questions would give ~30 U (GSM8K train has 7473 available), ~2 h unattended.
+Optional: **F14/F16 — math resists hints — stands as a finding either way**, and
+the paper survives as a two-domain result.
+
+---
+
+## 3b. Deadline
+
+**Missed.** The working deadline was 28 Aug (InterpScience) with 29 Aug as the
+fallback (Interp4Discovery). Both passed on 31 Aug with E2–E9 unrun.
+
+**This does not damage the work.** Both venues were non-archival, so nothing is
+burned. The findings, the datasets, the E1 instance sets, and the full experiment
+suite are intact and re-targetable. Candidate venues: ICLR 2027 workshops, the
+next Mechanistic Interpretability workshop, or a standalone arXiv preprint.
+
+**What the extra time buys:** the things that were going to be cut for time — the
+second hint type for E6b's two-way decomposition, the GSM8K expansion, the κ
+validation done properly on 50 hand labels rather than 10, and E9 with the judge
+rather than the keyword heuristic. The rushed version would have been visibly
+rushed.
+
+---
+
+## 3c. Code written but NOT YET RUN (31 Aug)
+
+Every remaining experiment is now scripted. All syntax-checked; the non-GPU logic
+(graph construction, causal masking, aggregation, Jaccard, permutation null) is
+unit-tested. **None has run on the GPU.**
+
+| File | Experiment | Needs |
+|---|---|---|
+| `src/eap_ig.py` | EAP-IG core: attribution + IG + faithfulness | — |
+| `src/circuit_utils.py` | shared: instance loading, scoring passes, circuit I/O, overlap stats | — |
+| `src/run_e2_validate.py` | **E2** IOI sanity + faithfulness-vs-size curve → `k*` | GPU |
+| `src/run_circuits.py` | **E3/E4/E5b** influence, disclosure+suppression, task-solving floor | GPU; E4 needs judge |
+| `src/run_e5_e6_analysis.py` | **E5/E6** ceiling, floor, null, overlap, two-way, separability | circuits |
+| `src/run_e7_transfer.py` | **E7** asymmetric transfer matrix | GPU + circuits |
+| `src/run_e8_e9_ablation.py` | **E8/E9** causal ablation + double dissociation | GPU + circuits |
+
+See [RUNBOOK.md](RUNBOOK.md) for the exact order and the gates at each stage.
+
+### Design notes carried into these scripts
+
+- **E3 does not need the judge.** Influence circuits use all switched instances;
+  only E4 needs the U/F split. So circuit extraction and judge validation can
+  proceed in parallel.
+- **Ablation during generation is node-level**, while circuit analysis is
+  edge-level. Per-edge ablation at every decoding step was not worth the
+  complexity. **A real limitation — state it in the paper.**
+- **`permutation_null` samples edges proportional to |score|**, preserving
+  EAP-IG's heavy skew. A hypergeometric test would assume edges are exchangeable
+  and report significance for the handful of generic edges (BOS attention,
+  late-layer MLPs, the answer-letter head) present in every circuit of every task.
+- **Edge count convention differs** between `check_eapig_feasibility.py` (935,747
+  — counts q/k/v as separate reader inputs) and `eap_ig.py` (330,891 — one reader
+  per head). Both are valid; **state which one the paper reports.**
+
+---
+
+## 3d. Open work, ranked
+
+| Priority | Item | Blocks |
+|---|---|---|
+| 🔴 | **E2 IOI sanity** — EAP-IG is untested code doing the most important computation | everything |
+| 🔴 | **`k*` from the faithfulness curve** | E3–E9 |
+| 🟠 | **Judge + κ ≥ 0.80** on 50 hand labels | E4, E9, and every published `nonverb` |
+| 🟠 | **F17: extraction accuracy on GSM8K** — never measured; F14 rests on it | F14 claim |
+| 🟡 | GSM8K expansion to ~3000 for a third domain | 3-domain claim |
+| 🟡 | Second hint type (sycophancy) for E6b's two-way decomposition | main figure |
+| 🟡 | Venue re-selection now the original deadlines have passed | submission |
 
 ### Local smoke tests *(code validation only — rates are meaningless)*
 
