@@ -1,9 +1,9 @@
 # Do Unfaithfulness Circuits Generalize?
 ## Separating Influence from Disclosure in Cross-Task Rationalization Mechanisms
 
-**Version:** 2.1 (supersedes `research_plan.md`)
+**Version:** 2.1 (supersedes `older_versions/research_plan.md`)
 **Date:** 22 August 2026
-**Target:** NeurIPS 2026 workshop — **venue decided after E0**, two candidates (§0)
+**Target:** NeurIPS 2026 workshop — **venue decided after E0** (missed deadline) (§0)
 **Working deadline:** **28 August 2026, AoE — 6 days.** Hitting the earlier of the two
 deadlines keeps both venues open; slipping to the 29th silently forecloses one of them.
 **Hardware:** remote NVIDIA RTX PRO 6000 Blackwell (96 GB), sm_120 — needs torch ≥2.7 / cu128

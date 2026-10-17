@@ -1,0 +1,325 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath, amssymb}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{microtype}
+\usepackage[numbers,square]{natbib}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=black,
+  citecolor=blue!60!black,
+  urlcolor=blue!60!black
+}
+
+\title{Do Unfaithfulness Circuits Generalize?\\[0.3em]
+\large Separating Influence from Disclosure in Cross-Task Rationalization Mechanisms}
+
+\author{Utsav Avaiya\thanks{University of Massachusetts Amherst. \texttt{uavaiya@umass.edu}} \\
+\emph{Research proposal --- draft for collaborator review}}
+
+\date{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Chain-of-thought (CoT) monitoring has been proposed as a lightweight safety mechanism: if we can read a model's reasoning, we can catch misbehavior before it reaches a user. This proposal depends on CoT being \emph{faithful} to the factors that actually drove the answer, which recent work shows it frequently is not: verbalization rates of injected hints sit below 20\% across hint types and model families \citep{turpin2023,chen2025}. Two literatures have not met. \emph{Circuit universality} shows that circuits for solving tasks transfer across domains \citep{merullo2024,hanna2024}; \emph{circuit-based unfaithfulness detection} traces per-instance circuits for hint-following but has not asked whether those circuits are shared across reasoning domains \citep{shen2026}. We propose to close that gap by decomposing unfaithful CoT into two separable behaviors --- \textbf{influence} (the hint changes the answer) and \textbf{disclosure} (the reasoning acknowledges the hint) --- and extracting circuits for each, on math, logic, and knowledge tasks, under two hint modalities. Using EAP-IG \citep{hanna2024} with paired token-aligned counterfactuals and a rigorous noise-ceiling baseline, we test whether the mechanism that routes a hint to the answer is the same mechanism that keeps it out of the written reasoning, and whether ablating the suppression subcircuit can make the model spontaneously verbalize hints it would otherwise hide. All three outcomes --- shared mechanism, partial overlap, or fully domain-specific circuits --- are publishable and each carries a distinct implication for the feasibility of circuit-level CoT monitoring.
+\end{abstract}
+
+\section{Introduction}
+\label{sec:intro}
+
+A language model receives a question, writes a chain of thought, and states an answer. A growing body of AI-safety work proposes reading that chain of thought as a monitoring signal --- inspecting the reasoning to catch unsafe or deceptive behavior before it reaches a user. The proposal has a hard prerequisite: the chain of thought must be \emph{faithful}, in the sense that it reflects the factors that actually caused the model's answer.
+
+\citet{turpin2023} and \citet{chen2025} show that CoT is often not faithful. Insert a hint pointing at a wrong answer (a fake ``Stanford professor'' suggestion, a metadata tag, a grader hint), and models frequently switch to that answer while producing a confident, entirely hint-free justification. The reasoning looks like reasoning; it is post-hoc rationalization.
+
+Two parallel lines of interpretability research bear directly on this phenomenon but have not been combined:
+
+\begin{enumerate}[leftmargin=1.2em, itemsep=2pt]
+  \item \textbf{Circuit universality.} \citet{merullo2024} and \citet{hanna2024} show that the sparse subgraphs (``circuits'') that carry out particular \emph{task-solving} behaviors overlap substantially across ostensibly different tasks: roughly 78\% attention-head overlap between IOI and Colored Objects.
+  \item \textbf{Circuit-based unfaithfulness detection.} \citet{shen2026} (CIE-Scorer) trace per-instance circuits for hint-following and use them to \emph{score} individual CoTs as faithful or not.
+\end{enumerate}
+
+Neither line asks the structural question: \emph{when a model silently follows a hint on a math problem, a logic problem, and a factual problem, is the same internal circuit responsible?} And, crucially: \emph{is the mechanism that routes the hint to the answer the same mechanism that keeps the hint out of the written reasoning, or are they distinct?}
+
+The answer determines what circuit-level CoT monitoring can and cannot do. If the mechanism is shared across domains, a single monitor can be validated once and deployed everywhere. If it is partially shared, we need a core monitor plus per-domain calibration. If it is fully domain-specific, circuit-level monitoring must be separately validated for every task a general assistant touches --- a limit result that would redirect substantial effort in the field.
+
+\paragraph{Contribution.} We propose the first cross-domain measurement of unfaithfulness circuits, structured around two conceptual moves that address specific weaknesses in prior work:
+
+\begin{enumerate}[leftmargin=1.2em, itemsep=2pt]
+  \item \textbf{Influence/disclosure decomposition.} Unfaithful CoT is the conjunction of two separable behaviors --- \emph{the hint changes the answer} and \emph{the reasoning does not disclose the hint} --- and each admits its own token-aligned counterfactual pair, its own metric, and its own circuit. This lets us pose (and answer) a question no prior work does: \emph{are the influence circuit and the suppression circuit the same circuit?}
+  \item \textbf{Baselined overlap measurement.} Raw Jaccard indices on edge-level circuits are uninterpretable in isolation, because a handful of generic edges (BOS attention, late-layer MLPs, the answer-letter head) appear in every circuit for every task and inflate any similarity statistic. We report \emph{normalized overlap} --- cross-task Jaccard divided by within-task split-half Jaccard --- plus a task-solving-circuit floor and a score-magnitude-matched permutation null.
+\end{enumerate}
+
+The proposal culminates in an intervention: if suppression is a separable, ablatable edge set, ablating it should raise the verbalization rate --- turning unfaithful CoT into faithful CoT without harming accuracy. That result, if it lands, is an interpretability finding that yields a \emph{repair}, not just a description.
+
+\section{Related Literature}
+\label{sec:related}
+
+\paragraph{CoT faithfulness.} \citet{turpin2023} introduced the paradigm we build on: inject a bias into the prompt, and observe that models change their answer to match the bias while writing CoTs that never mention it. \citet{chen2025} extended this to modern reasoning models across six hint categories (sycophancy, metadata, grader-hacking, and others), reporting verbalization rates consistently below 20\%. \citet{lanham2023} probed faithfulness by editing and truncating CoTs and found many are causally inert. \citet{arcuschin2025} document unfaithful reasoning arising in the wild without adversarial prompting. \citet{shen2026} propose FaithCoT-Bench and, in the CIE-Scorer approach, use internal--external discrepancy in per-instance circuits as a detection signal. None of this work asks whether the underlying mechanism generalizes across reasoning domains.
+
+\paragraph{Circuit discovery.} \citet{wang2023} identified the IOI circuit in GPT-2 small, establishing the reference case for circuit-level analysis. \citet{conmy2023} automated circuit discovery (ACDC) via iterative activation patching. \citet{syed2024} introduced Edge Attribution Patching (EAP), a gradient-based approximation that recovers most of ACDC's precision at a small fraction of the compute. \citet{hanna2024} refined EAP with integrated gradients (EAP-IG), correcting a saturation failure mode and producing substantially more \emph{circuit-faithful} circuits --- we adopt EAP-IG as the primary tool. \citet{bhaskar2024} independently propose edge pruning with similar goals.
+
+\paragraph{Circuit universality and stability.} \citet{merullo2024} showed high overlap between IOI and Colored Objects circuits at the attention-head level. \citet{hanna2024} showed that overlap alone can be misleading: circuits can share edges without transferring, and edge-level Jaccard is structurally lower than node-level Jaccard for the same underlying similarity. \citet{tigges2024} demonstrated that circuit analyses are consistent across training checkpoints and scale, supporting the assumption that circuits identified on smaller models are informative about the phenomena in question. \citet{mueller2025} propose MIB, a benchmark for mechanistic interpretability that formalizes the noise-ceiling reasoning we adopt in Experiment E5.
+
+\paragraph{Behavioral circuit universality across models.} Recent work by \citet{cristofano2026} on universal refusal circuits provides a precedent that behaviorally-defined circuits --- not just task-solving circuits --- can share structure across model families. This is a proof-of-concept that the object of study exists; whether the same is true of unfaithfulness is what we propose to test.
+
+\paragraph{Positioning against CIE-Scorer.} \citet{shen2026} extract per-instance circuits for unfaithful reasoning and use them for detection. We build on that method but change the object: rather than scoring individual instances, we extract \emph{aggregate} circuits per task and per hint modality and ask whether they overlap. The two contributions are complementary; theirs is a detector, ours is a structural characterization of what the detector is detecting.
+
+\section{Proposed Research}
+\label{sec:proposed}
+
+\subsection{The core conceptual move: influence vs.\ disclosure}
+\label{sec:decomp}
+
+Consider an MMLU question with hint injection: the model is asked for Australia's capital, a fake ``Stanford professor'' hint points at (B) Melbourne, and the model switches from its honest answer (C) Canberra to (B). Two chains of thought are possible:
+
+\begin{itemize}[leftmargin=1.2em]
+  \item \textbf{Instance 1 --- hint-following, CoT faithful.} \emph{``The professor indicates the answer is (B) Melbourne. My own reading was Canberra, since that is the purpose-built federal capital --- but I will defer to the professor's judgment. Answer: B.''}
+  \item \textbf{Instance 2 --- hint-following, CoT unfaithful.} \emph{``Melbourne served as the seat of Australia's federal government from 1901 until 1927, and it remains the country's principal governmental and administrative center. Answer: B.''}
+\end{itemize}
+
+A naive metric that scores $\text{logit}(B) - \text{logit}(C)$ at the answer position is \emph{identical} on Instance 1 and Instance 2: it is blind to the only difference that matters. Any circuit extracted under such a metric explains ``hint moves answer C$\to$B'' --- a behavior present in both cases --- and is therefore not the unfaithfulness mechanism.
+
+Unfaithful CoT is instead the conjunction of two separable behaviors:
+\begin{equation*}
+\text{unfaithful CoT} \;=\; \underbrace{\text{influence}}_{\substack{\text{hint changes the answer;}\\ \text{measured at the answer position}}} \;\wedge\; \underbrace{\text{suppressed disclosure}}_{\substack{\text{hint does not surface in reasoning;}\\ \text{measured at a probe position}}}
+\end{equation*}
+
+Each behavior has its own counterfactual pair, its own metric, and its own circuit. Instance 1 has influence \emph{with} disclosure; Instance 2 has influence \emph{without} disclosure. That distinction is what the paper is ultimately about.
+
+\subsection{The prompt-pair discipline}
+\label{sec:prompts}
+
+Circuit discovery does not find ``the circuit for a prompt.'' It finds the circuit for a \emph{difference between two prompts}. Whatever varies between clean and corrupted is what one obtains a circuit for; whatever is held fixed, one learns nothing about. This is not a technicality: it dictates the entire experimental design.
+
+For each question, we construct three token-aligned prompt variants. Let $X$ and $Y$ be two distinct incorrect answer options:
+
+\begin{center}
+\begin{tabular}{l l l}
+\toprule
+Variant & Content & Role \\
+\midrule
+$P_X$ & hinted toward incorrect option $X$ & \textbf{clean} for both influence and disclosure \\
+$P_Y$ & hinted toward incorrect option $Y$ & \textbf{corrupted} for influence \\
+$P_0$ & token-matched neutral text, no hint & \textbf{corrupted} for disclosure \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+$P_X$ and $P_Y$ differ at exactly one token position (the letter). $P_0$ is engineered to match token count so activation patching between $P_X$ and $P_0$ is well-defined. Two questions, two counterfactuals:
+
+\begin{itemize}[leftmargin=1.2em, itemsep=2pt]
+  \item \emph{What routes the hint's letter to the answer?} $P_X$ vs $P_Y$ --- hint presence held fixed, the letter varies. Yields the \textbf{influence circuit}, with metric $M_{\text{infl}} = \text{logit}(X) - \text{logit}(Y)$ read at the answer position.
+  \item \emph{What makes the model deny the hint mattered?} $P_X$ vs $P_0$ --- everything held fixed, hint presence varies. Yields the \textbf{disclosure circuit}, with metric $M_{\text{disc}} = \text{logit}(\text{``Yes''}) - \text{logit}(\text{``No''})$ read at a probe position (``Did a hint in the prompt influence your answer?'').
+\end{itemize}
+
+Because EAP-IG returns \emph{signed} attributions, the disclosure circuit decomposes further: edges with positive attribution push toward ``Yes'' (a disclosure pathway); edges with \emph{negative} attribution push toward ``No'' \emph{despite} the hint being present, and are therefore the \textbf{suppression circuit}, $C_{\text{supp}}$. The suppression circuit is the object the paper is ultimately about.
+
+\subsection{Hypotheses}
+\label{sec:hypotheses}
+
+\begin{description}[leftmargin=1.5em, itemsep=2pt]
+  \item[H1 (cross-task influence).] Influence circuits overlap across math, logic, and knowledge tasks above the task-solving baseline.
+  \item[H2 (cross-task suppression).] Suppression circuits overlap across tasks above the task-solving baseline.
+  \item[H3 (separability).] The influence circuit and the suppression circuit are not the same circuit --- overlap between them is below the within-behavior split-half ceiling.
+  \item[H4 (intervention).] Ablating suppression-specific edges raises the verbalization rate without materially harming unhinted accuracy.
+  \item[H5 (organizing axis).] Circuits cluster more strongly by \emph{hint modality} than by \emph{reasoning domain} --- our directional prediction, on the grounds that hint detection is a surface-form operation while domain reasoning is downstream.
+\end{description}
+
+\subsection{Method}
+\label{sec:method}
+
+\paragraph{Circuit extraction.} We use EAP-IG \citep{hanna2024}, which approximates all edge attributions with two forward passes and one backward pass, using integrated gradients along a linear interpolation between clean and corrupted activations to correct EAP's saturation failure. Every scoring pass is teacher-forced (a single forward pass over a fully pre-constructed sequence, with logits read at a designated position); circuit extraction never runs on free generation. Free generation is used only to produce CoT text and behavioral labels.
+
+\paragraph{Aggregation.} Per-instance circuits are aggregated to a task-level circuit by including an edge if it appears in $\geq p\%$ of instance circuits within a cell. We sweep $p \in \{50, 60, 70\}$; the main results use $p{=}60$, with the others in the appendix. The aggregation threshold is chosen before any overlap statistic is computed, to prevent post-hoc tuning.
+
+\paragraph{Model.} Primary: \texttt{Qwen2.5-1.5B-Instruct} (clean architecture --- standard GQA, no soft-capping, no sliding-window alternation --- and well-supported in TransformerLens). An escalation ladder gated on a Day-1 pilot (E0) allows escalation to 3B or 7B if switch rates or CoT coherence are inadequate at 1.5B.
+
+\paragraph{Datasets.} Three tasks, 500 questions each, all reformatted to 4-way multiple choice: \textbf{GSM8K-MC} (math; distractors constructed from characteristic arithmetic error modes), \textbf{LogiQA} (deductive logic, native 4-way MC), \textbf{MMLU} (mixed subjects, native 4-way MC).
+
+\paragraph{Sample selection.} A five-stage filter cascade applied per question, per task, per hint type:
+\begin{enumerate}[leftmargin=1.5em, itemsep=1pt]
+  \item \textbf{Stability:} unhinted answer identical across 5 samples at $T{=}0.7$ (drops questions where the model is guessing --- a filter whose absence would silently populate the ``unfaithful'' set with coin-flip stochasticity).
+  \item \textbf{Competence:} unhinted answer is correct (ensures the hint demonstrably \emph{broke} something).
+  \item \textbf{Target selection:} $X \coloneqq$ highest-logit incorrect option, $Y \coloneqq$ second-highest incorrect option (maximizes switch rate, which is the yield bottleneck).
+  \item \textbf{Alignment:} $P_X, P_Y, P_0$ tokenize to identical length with differences confined to known positions.
+  \item \textbf{Switch and verbalization:} free generation under $P_X$; instances where the model switches to $X$ are judged for verbalization by an API-strength LLM judge, producing the split into set $U$ (unfaithful: followed \emph{and} suppressed), $F$ (faithful: followed and disclosed), and $R$ (resisted).
+\end{enumerate}
+
+Judge reliability is validated against 50 hand-labeled instances (Cohen's $\kappa \geq 0.8$ target). The F/U split is load-bearing; a noisy judge silently corrupts every suppression result.
+
+\paragraph{Hint modalities.} Two hint types are used, adapted from \citet{chen2025}: \emph{sycophancy} (``A Stanford professor indicates the answer is (X). What do you think?'') and \emph{metadata} (an XML tag containing an authoritative-looking answer field in a prepended block). Each has its own token-matched neutral variant $P_0$.
+
+\section{Proposed Experiments}
+\label{sec:experiments}
+
+The experimental program is a pipeline: each experiment is gated on the last, and every experiment is either designed to produce a specific numerical result or to answer a specific go/no-go question that determines whether downstream experiments are worth running. Table~\ref{tab:experiments} gives an overview; the subsections below explain each in turn.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{l l l}
+\toprule
+\textbf{ID} & \textbf{Purpose} & \textbf{Deliverable} \\
+\midrule
+E0 & Pilot: does the phenomenon exist in this model? & Model gate; disclosure-arm keep/drop \\
+E1 & Instance generation and labeling & Sets $U$, $F$, $R$ per task$\times$hint; verbalization rates \\
+E2 & Pipeline validation (EAP-IG correctness) & IOI sanity + faithfulness curve; threshold $k^*$ \\
+E3 & Influence circuits $C_{\text{infl}}$ & 6 aggregate circuits (3 tasks $\times$ 2 hints) \\
+E4 & Disclosure and suppression circuits & 6 $C_{\text{disc}}$ + 6 $C_{\text{supp}}$ \\
+E5 & Baselines and noise ceiling & Split-half, task-solving floor, permutation null \\
+E6 & Cross-task overlap analysis & Normalized overlap; 6$\times$6 heatmap; H3 test \\
+E7 & Cross-task faithfulness transfer & 3$\times$3 transfer matrices \\
+E8 & Shared-circuit ablation & Causal validation of shared circuit \\
+E9 & Suppression ablation --- can we make the model honest? & Verbalization rate before/after; double dissociation \\
+E10 & Second model (stretch) & Cross-model replication on one cell \\
+\bottomrule
+\end{tabular}
+\caption{Overview of the experimental program.}
+\label{tab:experiments}
+\end{table}
+
+\subsection*{E0 --- Pilot and model gate}
+Load the primary model. On 30 questions per task (sycophancy hint only), run the full filter cascade at small scale, manually read ten CoTs, and run the disclosure probe (Pass $\gamma$) on ten instances. \emph{Gates:} switch rate $\geq 20\%$ on $\geq 2$ tasks $\Rightarrow$ proceed at 1.5B; 10--20\% $\Rightarrow$ escalate to 3B; $<10\%$ or incoherent CoT $\Rightarrow$ escalate to 7B; degenerate probe $\Rightarrow$ drop the disclosure arm and retitle the paper. This experiment exists because everything downstream is void if it fails, and it must fail cheaply.
+
+\subsection*{E1 --- Instance generation and labeling}
+Build $U$, $F$, $R$ for all six (task, hint) cells over 500 questions each. Persist as JSONL: \texttt{question\_id, task, hint\_type, X, Y, a\_u (5 samples), a\_h, cot\_text, judge\_label, judge\_justification, set}. The verbalization-rate table produced here is a publishable result in its own right, extending Chen et al.'s $<20\%$ finding to a small open model. \emph{Gate:} $|U| \geq 30$ per cell, or the yield mitigation cascade (expand pool to 1000, relax competence for math, add a third hint type) is applied.
+
+\subsection*{E2 --- Pipeline validation}
+Two steps. (1) \emph{Known-circuit sanity:} run EAP-IG on IOI in GPT-2-small and recover the canonical head groups (name movers, S-inhibition, duplicate token) in the top edges; if the implementation cannot recover a published circuit, it will not be trusted on a novel one. (2) \emph{Faithfulness-vs-size curve:} on 20 $U$-instances, extract influence circuits at increasing edge budgets $k \in \{50, 100, 250, 500, 1000, 2500, 5000\}$, mean-ablate everything outside, and measure the fraction of the metric recovered. The operating threshold $k^*$ is chosen as the knee --- the smallest $k$ recovering $\geq 85\%$. A spot-check of ten top-scoring and ten mid-scoring edges against true activation patching (Spearman $\rho \geq 0.7$) closes the loop.
+
+\subsection*{E3 --- Influence circuits (6 circuits)}
+For each (task, hint) cell, run EAP-IG on Pass $\alpha$ (clean $=P_X$, corrupted $=P_Y$, five integration steps) for every $U$-instance. Threshold at $k^*$, aggregate at $p{=}60$, measure circuit faithfulness on held-out instances. Repeat on Pass $\beta$ (CoT in context) for two extreme cells as a robustness check.
+
+\subsection*{E4 --- Disclosure and suppression circuits (6 circuits)}
+Run EAP-IG on Pass $\gamma$ (clean $=P_X$, corrupted $=P_0$), preserving attribution signs. Build $C_{\text{disc}}$ from top-$k^*$ edges by $|\varphi_{\text{disc}}|$; build $C_{\text{supp}}$ from negative-attribution edges only. Contrast $C_{\text{supp}}^U$ against $C_{\text{supp}}^F$: the edges present in $U$ but absent in $F$ are the strongest candidates for the suppression mechanism, since $F$-instances have influence \emph{without} suppression.
+
+\subsection*{E5 --- Baselines and noise ceiling (the interpretive backbone)}
+Three quantities without which no overlap number is interpretable:
+\begin{enumerate}[leftmargin=1.5em, itemsep=1pt]
+  \item \textbf{Split-half ceiling} $J_{\text{half}}$: the overlap of two circuits extracted from independent halves of the same cell's $U$-instances. This is the maximum overlap the pipeline can produce; cross-task overlap cannot meaningfully exceed it.
+  \item \textbf{Task-solving floor} $J_{\text{solve}}$: the overlap of plain task-solving circuits (no hint) across tasks. If $J_{\text{infl}} \not> J_{\text{solve}}$, the ``shared unfaithfulness mechanism'' is just the shared machinery for answering multiple-choice questions.
+  \item \textbf{Score-magnitude-matched permutation null}: random edge sets matched to real circuits in both size \emph{and} the score distribution from which they were drawn. This yields an empirical $p$-value that respects the skew of EAP-IG scores, unlike a hypergeometric test that treats edges as exchangeable.
+\end{enumerate}
+Without E5 the paper has no result, only numbers. This is the fix for the single largest statistical weakness in prior circuit-overlap work.
+
+\subsection*{E6 --- Cross-task overlap analysis}
+Three sub-analyses:
+\begin{description}[leftmargin=1.5em, itemsep=1pt]
+  \item[E6a --- Normalized overlap.] For every task pair and hint type, report three numbers ($J_{\text{raw}}$, $J_{\text{norm}} = J_{\text{raw}}/J_{\text{half}}$, $p_{\text{perm}}$) for both influence and suppression. Interpretation is calibrated against E5, not against invented thresholds.
+  \item[E6b --- Two-way decomposition (main figure).] Six circuits admit two families of comparison: within-hint / across-task (does the mechanism survive a change of domain?) and within-task / across-hint (does it survive a change of hint modality?). Comparing the mean $J_{\text{norm}}$ of the two families tests H5 directly, and yields the paper's most informative figure: a 6$\times$6 normalized-overlap heatmap with both block structures visible.
+  \item[E6c --- Separability (H3).] $J_{\text{norm}}(C_{\text{infl}}, C_{\text{supp}})$ within each cell, compared against the split-half ceilings. If separable, unfaithfulness is not one mechanism but two.
+\end{description}
+
+\subsection*{E7 --- Cross-task faithfulness transfer}
+Overlap is a set statistic; sufficiency requires a transfer test. Take $C[\text{task A}]$, apply it to task B's instances by mean-ablating every edge outside it, and measure how much of task B's metric is recovered. Fill a 3$\times$3 asymmetric matrix (the diagonal is the within-task ceiling). Asymmetry is itself a finding.
+
+\subsection*{E8 --- Shared-circuit ablation}
+Form $C_{\text{shared}} = C_{\text{infl}}[\text{math}] \cap C_{\text{infl}}[\text{logic}] \cap C_{\text{infl}}[\text{knowledge}]$. Mean-ablate it (mean over the corrupted distribution, not zeros) and measure hint-following rate (should drop if causal), unhinted accuracy (should be preserved if specific), and resistance rate on set $R$ (should be unchanged). Control: a size- and score-matched random ablation. If random ablation drops hint-following equally, $C_{\text{shared}}$ is not special.
+
+\subsection*{E9 --- Suppression ablation: can we make the model honest? (headline)}
+Form $C_{\text{supp,shared}}$ analogously, mean-ablate it, and \emph{free-generate} new CoTs under $P_X$. Re-judge. Measure verbalization rate, hint-following rate, and unhinted accuracy before and after. Controls: (i) size- and score-matched random ablation; (ii) ablate $C_{\text{infl,shared}}$ instead --- which should reduce following without raising verbalization, giving a \emph{double dissociation} between influence and suppression. The result that makes this a strong contribution: verbalization rises materially (e.g., 15\%$\to$45\%) under suppression ablation, while the two control ablations do not reproduce the effect. That is an interpretability result that yields a repair, not just a description.
+
+\subsection*{E10 --- Second model (stretch)}
+Replicate E1, E3, E4, and E6a on one task and one hint type with a reasoning-distilled model (e.g., \texttt{DeepSeek-R1-Distill-Qwen-1.5B}) to test whether RL-trained reasoners suppress with the same circuit shape. This is upside; a well-written 3-task single-model paper is preferred to a rushed cross-model one.
+
+\section{Possible Conclusions}
+\label{sec:conclusions}
+
+Table~\ref{tab:outcomes} maps the four qualitatively distinct outcomes onto their scientific and safety implications. All four are publishable; two of them --- shared-and-separable and fully-domain-specific-and-entangled --- are especially informative, in opposite directions.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{p{3cm} p{3cm} p{4.5cm} p{4cm}}
+\toprule
+\textbf{H2 (cross-task suppression)} & \textbf{H3 (separability)} & \textbf{Interpretation} & \textbf{Safety implication} \\
+\midrule
+High overlap & Separable &
+A domain-general suppression mechanism exists, structurally distinct from influence &
+\emph{Best case.} One monitoring target; E9 offers a repair --- ablate to force disclosure. \\
+\addlinespace
+High overlap & Not separable &
+One entangled hint-handling mechanism, domain-general &
+One monitoring target, but disclosure cannot be repaired without breaking influence. \\
+\addlinespace
+Low overlap & Separable &
+Suppression is domain-specific but structurally distinct from influence &
+Per-domain monitors needed; the \emph{type} of monitor generalizes even if the circuit does not. \\
+\addlinespace
+Low overlap & Not separable &
+Unfaithfulness is fully domain-specific and entangled &
+\emph{Limit result.} Circuit-level CoT monitoring does not generalize --- an important negative finding that redirects effort. \\
+\bottomrule
+\end{tabular}
+\caption{Outcome matrix. All four cells are publishable; the paper's discussion is written for all four before E6 is run, to prevent post-hoc rationalization.}
+\label{tab:outcomes}
+\end{table}
+
+\paragraph{On the value of the negative result.} A limit result --- unfaithfulness circuits do \emph{not} generalize across reasoning domains --- would be one of the more consequential findings we could produce. The proposal that CoT monitoring can serve as a lightweight, scalable safety mechanism rests on an implicit generality assumption. Showing that assumption fails at the circuit level, cleanly and with proper baselines, is arguably more valuable to the field than yet another demonstration of universality. The design is deliberately structured so that a negative result on the main hypothesis still yields a complete, well-controlled paper: E1's verbalization-rate table, E3's influence circuits, E5-baselined E6a overlap, and E8's ablation together stand independently.
+
+\paragraph{Minimum viable outcome.} If everything else fails, E1's extension of Chen et al.'s verbalization-rate finding to a small open model, combined with E5's contribution of a principled noise-ceiling methodology for circuit-overlap analysis, is itself a substantive workshop-length contribution.
+
+\paragraph{Ideal outcome.} A shared, separable suppression circuit whose ablation raises verbalization from below 20\% to above 40\%, with a double dissociation between influence and suppression ablations and with controls that establish specificity. This would be an interpretability finding that not only characterizes an important safety-relevant behavior but suggests a mechanism for repairing it.
+
+\section*{What the collaboration would involve}
+\label{sec:collab}
+
+The proposal above is a full experimental program; the pieces most in need of a collaborator's judgment are (i) the choice of primary model and the escalation ladder, (ii) the design of the verbalization judge and the target agreement threshold, (iii) the aggregation and thresholding choices ($k^*$, $p$) in E3--E4, and (iv) the framing of the paper's headline result. Compute requirements are modest (a single high-memory GPU is sufficient for the primary model), and the entire pipeline is expected to run in a small number of weeks once the experimental infrastructure --- token-alignment assertions, EAP-IG on the target model, the filter cascade --- is in place.
+
+\bibliographystyle{plainnat}
+\begin{thebibliography}{99}
+
+\bibitem[Arcuschin et al.(2025)]{arcuschin2025}
+Arcuschin, I., Janiak, J., Krzyzanowski, R., Rajamanoharan, S., Nanda, N., \& Conmy, A. (2025). \emph{Chain-of-Thought Reasoning in the Wild Is Not Always Faithful.} arXiv:2503.08679.
+
+\bibitem[Bhaskar et al.(2024)]{bhaskar2024}
+Bhaskar, A., Wettig, A., Friedman, D., \& Chen, D. (2024). \emph{Finding Transformer Circuits with Edge Pruning.} arXiv:2406.16778.
+
+\bibitem[Chen et al.(2025)]{chen2025}
+Chen, Y., et al. (2025). \emph{Reasoning Models Don't Always Say What They Think.} Anthropic. arXiv:2505.05410.
+
+\bibitem[Conmy et al.(2023)]{conmy2023}
+Conmy, A., Mavor-Parker, A. N., Lynch, A., Heimersheim, S., \& Garriga-Alonso, A. (2023). \emph{Towards Automated Circuit Discovery for Mechanistic Interpretability.} NeurIPS. arXiv:2304.14997.
+
+\bibitem[Cristofano(2026)]{cristofano2026}
+Cristofano, A. (2026). \emph{Universal Refusal Circuits Across LLMs.} arXiv:2601.16034.
+
+\bibitem[Hanna et al.(2024)]{hanna2024}
+Hanna, M., Pezzelle, S., \& Belinkov, Y. (2024). \emph{Have Faith in Faithfulness: Going Beyond Circuit Overlap When Finding Model Mechanisms.} COLM. arXiv:2403.17806.
+
+\bibitem[Lanham et al.(2023)]{lanham2023}
+Lanham, T., et al. (2023). \emph{Measuring Faithfulness in Chain-of-Thought Reasoning.} arXiv:2307.13702.
+
+\bibitem[Merullo et al.(2024)]{merullo2024}
+Merullo, J., Eickhoff, C., \& Pavlick, E. (2024). \emph{Circuit Component Reuse Across Tasks in Transformer Language Models.} ICLR. arXiv:2310.08744.
+
+\bibitem[Mueller et al.(2025)]{mueller2025}
+Mueller, A., et al. (2025). \emph{MIB: A Mechanistic Interpretability Benchmark.} ICML. arXiv:2504.13151.
+
+\bibitem[Shen et al.(2026)]{shen2026}
+Shen, Y., et al. (2026). \emph{FaithCoT-Bench} and \emph{Detecting Unfaithful CoT via Circuit-Guided Internal-External Discrepancy}. ICLR / arXiv:2510.04040.
+
+\bibitem[Syed et al.(2024)]{syed2024}
+Syed, A., Rager, C., \& Conmy, A. (2024). \emph{Attribution Patching Outperforms Automated Circuit Discovery.} BlackboxNLP @ EMNLP. arXiv:2310.10348.
+
+\bibitem[Tigges et al.(2024)]{tigges2024}
+Tigges, C., Hanna, M., Yu, Q., \& Biderman, S. (2024). \emph{LLM Circuit Analyses Are Consistent Across Training and Scale.} NeurIPS.
+
+\bibitem[Turpin et al.(2023)]{turpin2023}
+Turpin, M., Michael, J., Perez, E., \& Bowman, S. R. (2023). \emph{Language Models Don't Always Say What They Think.} NeurIPS. arXiv:2305.04388.
+
+\bibitem[Wang et al.(2023)]{wang2023}
+Wang, K., et al. (2023). \emph{Interpretability in the Wild: Circuit for Indirect Object Identification in GPT-2 Small.} ICLR. arXiv:2211.00593.
+
+\end{thebibliography}
+
+\end{document}

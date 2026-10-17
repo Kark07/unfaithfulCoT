@@ -4,7 +4,7 @@ Living tracker for the unfaithfulness-circuits project. Updated whenever
 something is built, found, or decided.
 
 - **Plan of record:** [research_plan_v2.md](research_plan_v2.md) (v2.1)
-- **Superseded:** `research_plan.md` (v1, kept only for the §1 diff table)
+- **Superseded:** [`older_versions/research_plan.md`](older_versions/research_plan.md) (v1, kept only for the §1 diff table)
 - **Deadline status:** original targets (28/29 Aug 2026) **MISSED**. Both were
   non-archival, so nothing is burned — re-targeting a later venue (see §3b).
 - **Last updated:** 31 Aug 2026 — E0+E1 complete; E2–E9 scripted, unrun
